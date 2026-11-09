@@ -46,13 +46,14 @@ PID RSS     ──► producer (Python) ──► Kafka: pid.disruptions        
 - Python 3.14 локально — для продюсеров и скриптов. Spark-джобы (PySpark) выполняются в контейнере Spark,
   поэтому версия Python там своя. Если библиотека не поддерживает 3.14 — ставить через venv
   нужной версии или запускать продюсер тоже в Docker.
-- Версии образов фиксировать явно (без `latest`) и записывать сюда, когда выберем.
+- Версии образов фиксировать явно (без `latest`) и записывать сюда, когда выберем:
+  - Kafka: `apache/kafka:4.3.2` (KRaft, один узел broker+controller). Из Windows — `localhost:9092`, из контейнеров — `kafka:19092`.
 - Зависимости Python — в виртуальном окружении `.venv` (в git не попадает).
 
 ## План (этапы)
 
 1. [x] Токен Golemio; скрипт `explore`: забрать позиции машин и вывести в консоль — разобраться в структуре данных
-2. [ ] Docker Compose с Kafka (KRaft); продюсер пишет позиции в `pid.vehicle_positions`; читаем топик консольным консьюмером
+2. [x] Docker Compose с Kafka (KRaft); продюсер пишет позиции в `pid.vehicle_positions`; читаем топик консольным консьюмером
 3. [ ] Spark Structured Streaming: парсинг JSON, средняя задержка по линиям в окнах 15 мин; вывод в консоль
 4. [ ] Хранение: сырые события → Parquet по датам, агрегаты → PostgreSQL
 5. [ ] Grafana: задержки по линиям, карта
@@ -72,3 +73,11 @@ PID RSS     ──► producer (Python) ──► Kafka: pid.disruptions        
 
 - Окружение: `py -3.14 -m venv .venv` и `.venv/Scripts/python -m pip install -r requirements.txt`
 - Снимок позиций машин (структура данных): `.venv/Scripts/python scripts/explore.py` → `data/explore/`
+- Kafka: `docker compose up -d` / `docker compose down` (данные в volume `kafka-data` сохраняются; `down -v` — удалить и их)
+- Создать топик: `docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --topic pid.vehicle_positions --partitions 3 --replication-factor 1`
+- Список / описание топиков: `docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list` (или `--describe --topic <name>`)
+- Читать топик: `docker exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 --topic pid.vehicle_positions --from-beginning --formatter-property print.key=true --formatter-property print.partition=true --formatter-property print.offset=true`
+- Писать в топик руками (`ключ:значение`): `docker exec -it kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:19092 --topic pid.vehicle_positions --reader-property parse.key=true --reader-property key.separator=: --reader-property ignore.error=true` (без `ignore.error` строка без `:`, даже пустая, роняет продюсер)
+- Продюсер позиций (опрос API → Kafka, Ctrl+C — стоп): `.venv/Scripts/python producers/vehicle_positions.py`
+- Сколько сообщений в партициях (последний offset): `docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka:19092 --topic pid.vehicle_positions`
+- В Git Bash перед `docker exec` с путями `/opt/...` нужно `export MSYS_NO_PATHCONV=1` (иначе Git Bash портит путь); в PowerShell не нужно.
