@@ -41,5 +41,24 @@ services:
       retries: 10
     restart: unless-stopped
 
+  spark:
+    image: apache/spark:4.2.1-java21-python3
+    container_name: spark
+    # The container just stays alive; jobs are started with `docker exec spark spark-submit ...`
+    command: ["sleep", "infinity"]
+    ports:
+      - "4040:4040" # Spark UI of the running job: http://localhost:4040
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs:ro # job code from the repo (read-only)
+      # cache for --packages downloads (Kafka connector); a bind mount because the image user
+      # has no home dir and a fresh named volume would be owned by root
+      - ./.cache/ivy:/opt/spark/ivy
+      # streaming checkpoints (offsets + state); kept on the host so they survive container recreation
+      - ./checkpoints:/opt/spark/checkpoints
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   kafka-data:

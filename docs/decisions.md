@@ -58,3 +58,33 @@ Short log of design decisions and why they were made.
 
 - **Decision:** `confluent-kafka` (Python wrapper over librdkafka), producer with `acks=all`, idempotence, lz4.
 - **Why:** de-facto standard client, fast, has Python 3.14 wheels for Windows.
+
+## 2026-11-09 — Spark: local mode in one container, jobs via `docker exec`
+
+- **Decision:** one container `apache/spark:4.2.1-java21-python3` that just stays alive; jobs are started with
+  `docker exec spark spark-submit ...` in local mode (driver and executors in one JVM, `local[*]`).
+- **Why:** the data volume (~1500 messages / 20 s) fits a single machine easily; a standalone cluster
+  (master + workers) adds containers and networking without teaching anything about the streaming API itself.
+  Job code is mounted from the repo, so editing a job does not require rebuilding an image.
+- **Version:** 4.2.1 (patch release) rather than 4.3.0, which was published a few days before.
+- **Kafka connector:** `spark-sql-kafka-0-10` is not in the image, it is downloaded by `--packages` from Maven Central
+  and cached in `.cache/ivy` (bind mount: the image user has no home dir, a named volume would be owned by root).
+
+## 2026-11-10 — Delays by line: 15-min tumbling windows on event time, watermark 10 min
+
+- **Window:** tumbling (non-overlapping) 15 minutes on `event_time` (when the vehicle reported), grouped by line.
+  15 min is long enough to contain several positions of most lines and short enough to see a rush hour build up.
+  Event time, not processing time: a position that arrives late still lands in the window it belongs to,
+  and re-reading old data gives the same result.
+- **Watermark 10 min:** in one API response positions were up to ~5 min old, so 10 min leaves a margin.
+  Trade-off: bigger watermark = fewer dropped late rows, but windows stay in memory and become final later.
+- **Output mode `update`:** each micro-batch emits only windows whose numbers changed, so the console shows
+  the current window growing. `append` would print a window only once it is final (window end + watermark,
+  i.e. ~25 min after it starts); `complete` would re-print all windows ever seen on every batch.
+- **foreachBatch for output:** sorting is not allowed on a streaming aggregation in update mode, but inside
+  `foreachBatch` each batch is a normal DataFrame. The same hook will write to PostgreSQL in stage 4.
+- **Checkpoint:** `checkpoints/delays_by_line` keeps processed Kafka offsets and the state of open windows.
+  Verified: after a restart the job continued with batch 5 and only new data instead of re-reading the topic.
+- **Known limitation:** the average is over positions, not trips — a trip that reports more often weighs more.
+  Lines with 1–2 trips in a window produce noisy extremes; a minimum sample (e.g. ≥ 3 trips) is needed before
+  ranking or alerting.
