@@ -9,6 +9,8 @@ from pyspark.sql.types import (
 KAFKA_BOOTSTRAP = "kafka:19092"  # INTERNAL listener: we are inside the compose network
 POSITIONS_TOPIC = "pid.vehicle_positions"
 CHECKPOINT_ROOT = "/opt/spark/checkpoints"
+DATA_ROOT = "/opt/spark/data"  # ./data on the host
+RAW_POSITIONS_PATH = f"{DATA_ROOT}/raw/vehicle_positions"  # Parquet, one folder per date
 
 # Schema of the JSON value written by producers/vehicle_positions.py.
 # Spark cannot infer a schema from a stream, so we describe it ourselves.

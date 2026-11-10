@@ -35,12 +35,10 @@ def show_batch(batch: DataFrame, batch_id: int) -> None:
     )
 
 
-def main() -> None:
-    spark = create_spark("delays_by_line")
-    positions = read_positions(spark).where(F.col("delay_s").isNotNull() & F.col("line").isNotNull())
-
-    delays = (
-        positions
+def aggregate_delays(positions: DataFrame) -> DataFrame:
+    """Streaming aggregation shared by the console job (this file) and delays_to_postgres.py."""
+    return (
+        positions.where(F.col("delay_s").isNotNull() & F.col("line").isNotNull())
         # Watermark: how long we wait for late positions. Spark keeps a window's state until
         # (max event_time seen) - 10 min passes the window end, then finalises and forgets it.
         .withWatermark("event_time", WATERMARK)
@@ -53,6 +51,11 @@ def main() -> None:
             F.max("delay_s").alias("max_delay_s"),
         )
     )
+
+
+def main() -> None:
+    spark = create_spark("delays_by_line")
+    delays = aggregate_delays(read_positions(spark))
 
     query = (
         delays.writeStream

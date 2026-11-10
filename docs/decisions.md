@@ -88,3 +88,53 @@ Short log of design decisions and why they were made.
 - **Known limitation:** the average is over positions, not trips — a trip that reports more often weighs more.
   Lines with 1–2 trips in a window produce noisy extremes; a minimum sample (e.g. ≥ 3 trips) is needed before
   ranking or alerting.
+
+## 2026-11-10 — Raw archive: Parquet partitioned by event date, one batch per 5 minutes
+
+- **Decision:** a separate streaming job `raw_to_parquet` writes every message of `pid.vehicle_positions` to
+  `data/raw/vehicle_positions/date=YYYY-MM-DD/` (Parquet, snappy), all parsed fields plus Kafka `partition`/`offset`.
+- **Why Parquet:** columnar and compressed (35k positions = 1.5 MB), stores the schema, and a batch query that
+  needs `line` and `delay_s` reads only those columns. Kafka is a buffer with limited retention, not an archive.
+- **Why a separate job, not a second sink in `delays_by_line`:** each streaming query has its own checkpoint and
+  reads Kafka independently, so the archive keeps working when the aggregation job is stopped, changed or reset.
+- **Partition by `date` = day of `event_time` in Prague time:** daily batch jobs read one folder (partition pruning).
+  Event date, not ingest date: a position reported at 23:59 and fetched at 00:01 belongs to the day it happened.
+  Not partitioned by line: hundreds of lines x days would give thousands of tiny files.
+- **Trigger 5 min + `coalesce(1)`:** every micro-batch writes at least one file per date. With the 20 s trigger of
+  the console job and 3 Kafka partitions that would be ~13 000 small files a day; now it is ~288.
+  Price: the archive lags up to 5 minutes behind Kafka, which is fine for batch analytics.
+- **Exactly-once:** the checkpoint stores the Kafka offsets of each batch, and the file sink lists the files of each
+  committed batch in `_spark_metadata`. After a crash the batch is re-run with the same offsets and Spark readers
+  ignore files that are not in the log. Verified on the first run: 34 972 rows = sum of the topic's end offsets,
+  34 972 distinct (partition, offset). Restart from the checkpoint is not verified yet for this job.
+- **Limitations:** tools that do not know `_spark_metadata` (pandas, DuckDB) may see leftovers of a failed batch;
+  the data folder and the checkpoint must be deleted together; no deduplication here — the archive is a copy of
+  the topic, duplicates after a producer restart are removed by the jobs that read it.
+
+## 2026-11-10 — Aggregates in PostgreSQL: upsert from `foreachBatch`
+
+- **Decision:** job `delays_to_postgres` runs the same aggregation as `delays_by_line` (shared `aggregate_delays()`)
+  and upserts every micro-batch into `line_delays_15m` with `INSERT ... ON CONFLICT (window_start, line, route_type)
+  DO UPDATE`. The primary key is exactly the key Spark groups by.
+- **Why PostgreSQL next to Parquet:** Parquet is the cheap full history for batch jobs; a dashboard needs fast
+  queries on small ready-made aggregates and a table that can be updated in place.
+- **Why upsert:** in `update` mode Spark emits an open window again on every batch that changes it, each time
+  with the full current numbers (not a difference). A plain `INSERT` would add a new row every 20 s.
+  The alternative, `append` mode, writes each window once but only after it is final (~25 min after it starts).
+- **Idempotency instead of exactly-once:** `foreachBatch` is at-least-once — after a crash Spark may run the last
+  batch again. With an upsert a repeated batch just overwrites the same rows, so the table ends up correct.
+  One transaction per batch: a batch is in the table completely or not at all.
+  Verified: checkpoint deleted, whole topic replayed — still 2061 rows / 34 972 positions, only `updated_at` changed;
+  per-window numbers equal the same aggregation computed in batch from the Parquet archive.
+- **Why psycopg and `collect()`, not Spark's JDBC writer:** the JDBC sink can only append or overwrite a whole
+  table, it has no upsert. A batch of aggregates is a few hundred rows, so collecting it to the driver and running
+  `executemany` is simple and cheap. This would not scale to raw data; there the usual pattern is a JDBC write
+  to a staging table followed by one `INSERT ... SELECT ... ON CONFLICT`.
+- **Custom Spark image:** `spark/Dockerfile` adds `psycopg[binary]` to the official image. In local mode only the
+  driver needs it; on a real cluster the library would have to be on every executor that imports it.
+- **Timestamps:** window bounds travel as epoch seconds and become `timestamptz` via `to_timestamp()`.
+  `collect()` returns naive datetimes in the time zone of the Python process, which is easy to get wrong.
+- **Credentials:** `POSTGRES_*` in `.env`; Compose substitutes them into both the `postgres` and `spark` services.
+- **Limitations:** a new connection per batch (fine at one batch per 20 s); late rows beyond the watermark are
+  dropped, so a finished window in PostgreSQL can differ slightly from a batch recount over Parquet;
+  `route_type` NULL is stored as -1 because a primary key column cannot be NULL (none seen so far).

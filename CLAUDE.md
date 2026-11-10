@@ -48,8 +48,13 @@ PID RSS     ──► producer (Python) ──► Kafka: pid.disruptions        
   нужной версии или запускать продюсер тоже в Docker.
 - Версии образов фиксировать явно (без `latest`) и записывать сюда, когда выберем:
   - Kafka: `apache/kafka:4.3.2` (KRaft, один узел broker+controller). Из Windows — `localhost:9092`, из контейнеров — `kafka:19092`.
-  - Spark: `apache/spark:4.2.1-java21-python3` (local mode в одном контейнере), коннектор `org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1`.
-    Код джоб — `spark/jobs/` (монтируется в `/opt/spark/jobs`), кэш скачанных jar — `.cache/ivy`.
+  - PostgreSQL: `postgres:18.6-alpine`, контейнер `pid-postgres` (имя `postgres` занято другим проектом). Из Windows — `localhost:5432`,
+    из контейнеров — `postgres:5432`. База/пользователь/пароль — `POSTGRES_*` в `.env`. Схема — `postgres/init/*.sql`
+    (выполняется только при первом создании volume `postgres-data`).
+  - Spark: свой образ `pid-spark:4.2.1` = `apache/spark:4.2.1-java21-python3` + `psycopg[binary]==3.3.8` (`spark/Dockerfile`;
+    после правки Dockerfile — `docker compose up -d --build spark`). Local mode в одном контейнере, коннектор `org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1`.
+    Код джоб — `spark/jobs/` (монтируется в `/opt/spark/jobs`), кэш скачанных jar — `.cache/ivy`,
+    данные — `data/` (монтируется в `/opt/spark/data`).
 - Зависимости Python — в виртуальном окружении `.venv` (в git не попадает).
 
 ## План (этапы)
@@ -57,7 +62,7 @@ PID RSS     ──► producer (Python) ──► Kafka: pid.disruptions        
 1. [x] Токен Golemio; скрипт `explore`: забрать позиции машин и вывести в консоль — разобраться в структуре данных
 2. [x] Docker Compose с Kafka (KRaft); продюсер пишет позиции в `pid.vehicle_positions`; читаем топик консольным консьюмером
 3. [x] Spark Structured Streaming: парсинг JSON, средняя задержка по линиям в окнах 15 мин; вывод в консоль
-4. [ ] Хранение: сырые события → Parquet по датам, агрегаты → PostgreSQL
+4. [x] Хранение: сырые события → Parquet по датам, агрегаты → PostgreSQL
 5. [ ] Grafana: задержки по линиям, карта
 6. [ ] Аномалии и алерты: `pid.alerts` → Telegram-бот (подписка на линию)
 7. [ ] Справочник GTFS (названия линий/остановок), RSS сбоев → `pid.disruptions`
@@ -84,6 +89,12 @@ PID RSS     ──► producer (Python) ──► Kafka: pid.disruptions        
 - Сколько сообщений в партициях (последний offset): `docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka:19092 --topic pid.vehicle_positions`
 - Spark-джоба (пример — чтение топика в консоль, Ctrl+C — стоп): `docker exec -it spark /opt/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 --conf spark.jars.ivy=/opt/spark/ivy /opt/spark/jobs/read_positions.py`
 - Средняя задержка по линиям в окнах 15 мин (консоль): та же команда с `/opt/spark/jobs/delays_by_line.py`
+- Архив сырых позиций Kafka → Parquet по датам (батч раз в 5 мин, Ctrl+C — стоп): та же команда с `/opt/spark/jobs/raw_to_parquet.py` → `data/raw/vehicle_positions/date=YYYY-MM-DD/`
+- Проверить архив (батч-джоба, коннектор Kafka не нужен): `docker exec -it spark /opt/spark/bin/spark-submit /opt/spark/jobs/inspect_raw.py`
+- Сбросить архив: удалить **и** `data/raw/vehicle_positions`, **и** `checkpoints/raw_to_parquet` (только одно из двух = дубли или пропуски).
+- Агрегаты по линиям (окна 15 мин) → PostgreSQL, таблица `line_delays_15m` (Ctrl+C — стоп): та же команда с `/opt/spark/jobs/delays_to_postgres.py`
+- SQL-консоль PostgreSQL: `docker exec -it pid-postgres psql -U pid -d pid` (пример: `select * from line_delays_15m where trips >= 3 order by window_start desc, avg_delay_s desc limit 20;`)
+- Пересчитать `line_delays_15m` с начала топика: удалить `checkpoints/delays_to_postgres` и запустить джобу (upsert перезапишет строки, дублей не будет).
 - Checkpoint джобы — `checkpoints/<job>` (в git не попадает). Удалить папку = джоба начнёт заново с начала топика.
 - Spark UI работающей джобы: http://localhost:4040
 - В Git Bash перед `docker exec` с путями `/opt/...` нужно `export MSYS_NO_PATHCONV=1` (иначе Git Bash портит путь); в PowerShell не нужно.
