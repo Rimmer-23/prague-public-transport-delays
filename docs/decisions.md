@@ -224,3 +224,45 @@ Short log of design decisions and why they were made.
 - **Limitations:** the end of an open-ended incident is known only to the poll interval (2 min); if a feed cannot
   be fetched its items are *not* marked as removed; the XML is parsed with the standard library (trusted source).
 
+## 2026-11-11 — Anomalies: sliding windows, baseline per line, alerts deduplicated in PostgreSQL
+
+- **Window:** sliding, 10 minutes long, sliding by 5 (`F.window("event_time", "10 minutes", "5 minutes")`), update
+  mode. With tumbling windows a line is unobservable right after a window starts (fewer than 3 trips yet); with
+  sliding windows there is always a window holding at least the last 5 minutes. Price: every position is counted
+  in two windows, state is twice as big.
+- **Rule:** a (window, line) is an alert when it has ≥ 3 trips and its average delay ≥ threshold, where
+  threshold = `max(180 s, baseline_avg + 3·baseline_std)` for a line with a baseline, 300 s otherwise.
+- **Baseline:** mean and standard deviation of the line's window averages over the last 14 days, computed by the
+  nightly batch job with the same window definition and stored in `line_delay_baseline`. The streaming job reads
+  the table on every micro-batch (one row per line) and broadcast-joins it inside `foreachBatch`, so new numbers
+  are picked up without a restart. A stream–static join outside `foreachBatch` would read the table once.
+- **Why state in PostgreSQL:** in update mode the same window is emitted on every batch that changes it. Table
+  `line_alerts` with primary key (line, route_type, window_start) plus a `NOT EXISTS` cooldown check (30 min per
+  line) turns "condition is true" into "alert once". `INSERT ... RETURNING` tells which alerts are new.
+  The Spark-native alternative is arbitrary stateful processing (`transformWithState`), which needs pandas/Arrow
+  in the image and is harder to inspect than a table.
+- **Kafka sink:** new alerts are written to `pid.alerts` (key = line) with the DataFrame Kafka writer, *before*
+  the PostgreSQL transaction commits. If Kafka fails, the inserts roll back and Spark retries the batch; if the
+  commit fails after the Kafka write, the alert is sent again on retry. At-least-once: a duplicate is possible,
+  a lost alert is not.
+- **Bug found on the way:** `greatest(180, NULL)` is 180 in Spark (NULLs are skipped), so lines without a baseline
+  silently got the 180 s threshold instead of 300 s. Replaced with an explicit `when(...).otherwise(...)`.
+- **Limitations:** one baseline per line for the whole day (rush hour and night are not distinguished — needs more
+  history); outliers inflate the standard deviation; no "back to normal" message.
+
+## 2026-11-11 — Telegram bot: Kafka consumer group with manual commits
+
+- **Decision:** `bot/telegram_bot.py` — one process, one loop: `consumer.poll(1 s)` on `pid.alerts`, then
+  Telegram `getUpdates` (long polling, 2 s). Plain `requests` against the Bot API, no bot framework.
+- **Consumer group `pid-telegram-bot`:** Kafka stores the group's committed offset, so a restarted bot continues
+  where it stopped. `enable.auto.commit=false`, commit after the alert is handled → at-least-once.
+- **`auto.offset.reset=earliest`** applies only when the group has no committed offset (first start). Old alerts
+  are then dropped by age (window ended more than 30 min ago), so replaying the topic never spams anybody.
+- **Subscriptions** (`/subscribe 22`, `/subscribe all`, `/unsubscribe`, `/list`) live in PostgreSQL, table
+  `bot.telegram_subscriptions`. A separate schema because chat ids are personal data: the Grafana role
+  `grafana_reader` has rights on schema `public` only.
+- **Without a token** the bot runs in console mode and prints alerts — the Kafka part can be studied without
+  creating a Telegram bot.
+- **Limitations:** Telegram updates are confirmed before the reply is sent (a crash in between loses one command);
+  one process handles both loops, so a reply can take up to ~3 s.
+
