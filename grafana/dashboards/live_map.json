@@ -1,0 +1,629 @@
+{
+  "uid": "pid-live-map",
+  "title": "PID live map",
+  "description": "Where every vehicle of Prague public transport is right now and how late it is (table vehicle_positions_latest, written by Spark).",
+  "tags": [
+    "pid"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "timezone": "Europe/Prague",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "20s",
+  "graphTooltip": 1,
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "pid"
+      ],
+      "asDropdown": false,
+      "title": "PID dashboards",
+      "includeVars": false,
+      "keepTime": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "vehicle_type",
+        "label": "Vehicle type",
+        "type": "custom",
+        "multi": true,
+        "includeAll": true,
+        "query": "tram : 0,metro : 1,train : 2,bus : 3,ferry : 4,funicular : 7,trolleybus : 11",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      },
+      {
+        "name": "min_delay",
+        "label": "Delay at least",
+        "type": "custom",
+        "multi": false,
+        "includeAll": false,
+        "query": "any : -100000,1 min : 60,3 min : 180,5 min : 300,10 min : 600",
+        "current": {
+          "selected": true,
+          "text": "any",
+          "value": "-100000"
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Vehicles on the map",
+      "description": "Trips that reported a position in the 5 minutes before the newest position.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS vehicles\nFROM vehicle_positions_latest\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Average delay now",
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(avg(delay_s)) AS avg_delay\nFROM vehicle_positions_latest\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Late by 3 min or more",
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT avg((delay_s >= 180)::int) AS late_share\nFROM vehicle_positions_latest\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Most delayed vehicle",
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT max(delay_s) AS max_delay\nFROM vehicle_positions_latest\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Newest position",
+      "description": "If this is more than a minute ago, the producer or the Spark job positions_to_postgres is not running.",
+      "gridPos": {
+        "x": 19,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT extract(epoch FROM max(event_time)) * 1000 AS newest\nFROM vehicle_positions_latest"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "geomap",
+      "title": "Vehicles now, coloured by delay",
+      "description": "Last known position of every running trip (table vehicle_positions_latest, kept fresh by Spark). The arrow points where the vehicle is heading. Green: under 1 min late, yellow: 1-3 min, orange: 3-5 min, red: 5 min and more.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 15,
+        "h": 20
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delay_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "displayName",
+                "value": "Delay"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bearing"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "tooltip": true,
+                  "legend": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 50.075,
+          "lon": 14.44,
+          "zoom": 11.3,
+          "allLayers": false
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": true,
+          "showMeasure": false,
+          "showDebug": false
+        },
+        "basemap": {
+          "type": "default",
+          "name": "Basemap",
+          "config": {}
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Vehicles",
+            "tooltip": true,
+            "config": {
+              "showLegend": true,
+              "style": {
+                "color": {
+                  "field": "delay_s",
+                  "fixed": "dark-green"
+                },
+                "opacity": 0.85,
+                "size": {
+                  "fixed": 7,
+                  "min": 3,
+                  "max": 15
+                },
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/triangle.svg"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "rotation": {
+                  "field": "bearing",
+                  "fixed": 0,
+                  "min": -360,
+                  "max": 360,
+                  "mode": "mod"
+                }
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "lat",
+              "longitude": "lon"
+            }
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT v.lat, v.lon,\n       delay_s,\n       line,\n       CASE route_type WHEN 0 THEN 'tram' WHEN 1 THEN 'metro' WHEN 2 THEN 'train' WHEN 3 THEN 'bus'\n            WHEN 4 THEN 'ferry' WHEN 7 THEN 'funicular' WHEN 11 THEN 'trolleybus' ELSE 'other' END AS vehicle_type,\n       headsign,\n       s.stop_name AS last_stop,\n       coalesce(bearing, 0) AS bearing,\n       event_time AS reported\nFROM vehicle_positions_latest v\nLEFT JOIN gtfs_stops s ON s.stop_id = v.last_stop_id\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay\nORDER BY delay_s NULLS FIRST"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Most delayed vehicles right now",
+      "description": "Stop names come from the GTFS reference data (scripts/load_gtfs.py); until it is loaded the stop id is shown.",
+      "gridPos": {
+        "x": 15,
+        "y": 4,
+        "w": 9,
+        "h": 20
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delay"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 60
+                    },
+                    {
+                      "color": "orange",
+                      "value": 180
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT line AS \"Line\",\n       CASE route_type WHEN 0 THEN 'tram' WHEN 1 THEN 'metro' WHEN 2 THEN 'train' WHEN 3 THEN 'bus'\n            WHEN 4 THEN 'ferry' WHEN 7 THEN 'funicular' WHEN 11 THEN 'trolleybus' ELSE 'other' END AS \"Type\",\n       headsign AS \"To\",\n       coalesce(s.stop_name, v.last_stop_id) AS \"Last stop\",\n       delay_s AS \"Delay\"\nFROM vehicle_positions_latest v\nLEFT JOIN gtfs_stops s ON s.stop_id = v.last_stop_id\nWHERE event_time > (SELECT max(event_time) FROM vehicle_positions_latest) - interval '5 minutes'\n  AND route_type IN ($vehicle_type) AND coalesce(delay_s, 0) >= $min_delay\nORDER BY delay_s DESC NULLS LAST\nLIMIT 25"
+        }
+      ]
+    }
+  ]
+}

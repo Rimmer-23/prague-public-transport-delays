@@ -163,6 +163,21 @@ Short log of design decisions and why they were made.
 - **Limitations:** vehicle type names are a `CASE` in the queries (GTFS has names of lines and stops, not of
   vehicle types). The map came later, see the next entry.
 
+## 2026-11-11 — Map: a "current state" table next to the history table
+
+- **Decision:** job `positions_to_postgres` keeps table `vehicle_positions_latest` — one row per running trip,
+  overwritten on every new position (upsert by `trip_id`, only if the new `event_time` is newer). Rows of trips
+  that have been silent for 2 hours are deleted in the same transaction. Grafana's Geomap panel reads the table.
+- **Why a separate table:** `line_delays_15m` answers "how was it" (history, aggregated), the map asks "where is
+  everything now". Raw positions do not belong in PostgreSQL (millions of rows a day), the latest one per trip does
+  (~2000 rows in total).
+- **Stateless streaming:** no window, no watermark, no state store — every micro-batch is reduced to the newest
+  row per trip (`max_by(struct(...), event_time)`) inside `foreachBatch` and upserted.
+- **`startingOffsets=latest`:** the only job that skips the history on its first start; a map of current
+  positions has no use for last week's data. The aggregation jobs keep `earliest`.
+- **"Now" = newest position in the table**, not the clock: when collection is off the map still shows the last
+  known picture, and the "Newest position" tile shows how old it is.
+
 ## 2026-11-11 — `spark.sql.shuffle.partitions` = 8, `maxOffsetsPerTrigger` = 200 000
 
 - **Problem:** with five streaming queries in one application micro-batches took 22–38 s for a 20 s trigger
