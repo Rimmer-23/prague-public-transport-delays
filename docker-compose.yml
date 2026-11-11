@@ -118,7 +118,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  spark:
+  # `&spark` names this whole block, so that the pipeline services below can copy it (`<<: *spark`)
+  # and change only what differs.
+  spark: &spark
     # apache/spark:4.2.1-java21-python3 + Python libraries for jobs, see spark/Dockerfile.
     # After changing the Dockerfile: docker compose up -d --build spark
     build: ./spark
@@ -150,6 +152,106 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
+  # ------------------------------------------------------------------------------------------------
+  # Profile "pipeline": the whole pipeline as background services that start again with Docker.
+  #   docker compose --profile pipeline up -d --build      start (or update) everything
+  #   docker compose --profile pipeline logs -f --tail 20  follow what the services print
+  #   docker compose --profile pipeline down               stop everything (data stays in volumes and ./data)
+  # Without --profile these services are ignored: `docker compose up -d` starts only the infrastructure.
+  # ------------------------------------------------------------------------------------------------
+
+  producer-positions: &python
+    # Producers, the Telegram bot and the GTFS loader share one image: python:3.14.7-slim + requirements.txt
+    # (see Dockerfile). The code is mounted, not copied: after editing a script, restart its service.
+    profiles: ["pipeline"]
+    build: .
+    image: pid-python:3.14
+    container_name: pid-producer-positions
+    command: ["python", "-u", "producers/vehicle_positions.py"]
+    env_file: .env # GOLEMIO_API_TOKEN, TELEGRAM_BOT_TOKEN, POSTGRES_*, poll intervals
+    environment:
+      # inside the compose network: service names instead of localhost (these win over .env)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./producers:/app/producers:ro
+      - ./bot:/app/bot:ro
+      - ./scripts:/app/scripts:ro
+      - ./data/gtfs:/app/data/gtfs # GTFS files downloaded by scripts/load_gtfs.py, read by Spark
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  producer-disruptions:
+    <<: *python
+    container_name: pid-producer-disruptions
+    command: ["python", "-u", "producers/disruptions.py"]
+
+  telegram-bot:
+    <<: *python
+    container_name: pid-telegram-bot
+    command: ["python", "-u", "bot/telegram_bot.py"]
+
+  gtfs-loader:
+    # Reference data: loads routes and stops on start, then once a day (PID publishes a new archive
+    # every night; the script skips the download when the archive did not change).
+    <<: *python
+    container_name: pid-gtfs-loader
+    command: ["sh", "-c", "while true; do python -u scripts/load_gtfs.py; sleep 86400; done"]
+
+  spark-streaming:
+    # All streaming queries in one Spark application (spark/jobs/run_all.py).
+    # Do not start the same job by hand in the `spark` container while this runs: one checkpoint = one query.
+    <<: *spark
+    profiles: ["pipeline"]
+    container_name: pid-spark-streaming
+    command:
+      - /opt/spark/bin/spark-submit
+      - --packages
+      - org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1
+      - --conf
+      - spark.jars.ivy=/opt/spark/ivy
+      - --driver-memory
+      - 2g
+      - /opt/spark/jobs/run_all.py
+    ports:
+      - "4041:4040" # Spark UI: http://localhost:4041 (4040 belongs to jobs started by hand)
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  spark-daily:
+    # Daily batch job (spark/jobs/daily_stats.py): once on start, then every day at 05:00 Prague time,
+    # when yesterday is complete in the archive. The job is idempotent, an extra run does no harm.
+    <<: *spark
+    profiles: ["pipeline"]
+    container_name: pid-spark-daily
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        while true; do
+          /opt/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 \
+            --conf spark.jars.ivy=/opt/spark/ivy --conf spark.ui.enabled=false --driver-memory 2g \
+            /opt/spark/jobs/daily_stats.py 2>&1 | grep -v -e WARN -e INFO
+          now=$$(date +%s)
+          next=$$(TZ=Europe/Prague date -d "05:00" +%s)
+          if [ "$$next" -le "$$now" ]; then next=$$((next + 86400)); fi
+          echo "Next run in $$(( (next - now) / 60 )) minutes."
+          sleep $$((next - now))
+        done
+    ports: []
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
 
 volumes:
   kafka-data:

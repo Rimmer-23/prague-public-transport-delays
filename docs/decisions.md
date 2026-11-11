@@ -106,7 +106,9 @@ Short log of design decisions and why they were made.
 - **Exactly-once:** the checkpoint stores the Kafka offsets of each batch, and the file sink lists the files of each
   committed batch in `_spark_metadata`. After a crash the batch is re-run with the same offsets and Spark readers
   ignore files that are not in the log. Verified on the first run: 34 972 rows = sum of the topic's end offsets,
-  34 972 distinct (partition, offset). Restart from the checkpoint is not verified yet for this job.
+  34 972 distinct (partition, offset). Restart from the checkpoint verified on 2026-11-11: after three stops and
+  starts (including a move into the `run_all.py` application) the archive had 71 631 rows and 71 631 distinct
+  (partition, offset), and `max_offset + 1` per partition followed the topic's end offsets.
 - **Limitations:** tools that do not know `_spark_metadata` (pandas, DuckDB) may see leftovers of a failed batch;
   the data folder and the checkpoint must be deleted together; no deduplication here — the archive is a copy of
   the topic, duplicates after a producer restart are removed by the jobs that read it.
@@ -190,6 +192,18 @@ Short log of design decisions and why they were made.
 - **`maxOffsetsPerTrigger`:** one micro-batch takes at most 200 000 Kafka messages. Normally a batch is ~1500
   messages; the limit matters after a checkpoint reset or a long stop, when the backlog would otherwise arrive
   as one batch (and `collect()` in `foreachBatch` would pull a huge result to the driver).
+
+## 2026-11-11 — All streaming queries in one Spark application (`run_all.py`)
+
+- **Decision:** every job module has `start(spark) -> StreamingQuery`; `run_all.py` starts all five in one
+  SparkSession and waits with `spark.streams.awaitAnyTermination()`. The jobs can still be run one by one.
+- **Why:** five separate `spark-submit` = five JVMs of 1–2 GB each on a 16 GB laptop. Queries in one application
+  share the driver but stay independent: own checkpoint, own Kafka offsets, own trigger.
+- **Trade-off:** one failing query stops the application (the exception surfaces in `awaitAnyTermination`).
+  Chosen deliberately: Docker restarts the service and every query continues from its checkpoint, which is
+  better than four queries running while the fifth is silently dead.
+- **Rule:** never run the same job twice at once (by hand and in `run_all.py`): two queries writing one checkpoint
+  corrupt it.
 
 ## 2026-11-11 — GTFS reference data: only routes and stops, loaded with COPY
 
@@ -289,3 +303,15 @@ Short log of design decisions and why they were made.
   and an incident can coincide); trips crossing midnight are split between two days; results are collected to the
   driver (a few thousand rows per day).
 
+## 2026-11-11 — Whole pipeline as Compose services (profile `pipeline`)
+
+- **Decision:** `docker compose --profile pipeline up -d --build` starts producers, the bot, the GTFS loader, the
+  streaming application and the daily batch loop as containers with `restart: unless-stopped`. Without the
+  profile Compose starts only the infrastructure, and everything can be run by hand as before.
+- **Why:** the norm per line and the batch analytics need days of uninterrupted data; terminals get closed.
+- **`kafka-init`:** a one-shot container creates the three topics with `--if-not-exists`, because auto-creation
+  is off. Other services wait for it (`service_completed_successfully`).
+- **Python image** (`Dockerfile`): `python:3.14.7-slim` + `requirements.txt`; code is bind-mounted like the Spark
+  jobs. `.dockerignore` keeps `./data` out of the build context.
+- **Daily job without cron:** a shell loop in the `spark-daily` container — run, sleep until 05:00 Prague time.
+  Good enough for one machine; a real deployment would use a scheduler (Airflow, cron, Kubernetes CronJob).

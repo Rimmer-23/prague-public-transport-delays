@@ -1,0 +1,4 @@
+# The Python image needs only requirements.txt. Without this file Docker would send the whole folder,
+# including gigabytes of ./data, to the builder on every build.
+*
+!requirements.txt
