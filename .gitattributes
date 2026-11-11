@@ -1,0 +1,2 @@
+# SQL run inside the Linux PostgreSQL container: keep LF line endings on Windows too
+postgres/init/* text eol=lf

@@ -1,0 +1,18 @@
+# Provisioning: Grafana reads this file at startup and creates the data source itself,
+# so nothing has to be clicked in the UI and the setup lives in git.
+apiVersion: 1
+
+datasources:
+  - name: PID PostgreSQL
+    uid: pid-postgres # dashboards refer to the data source by this id
+    type: grafana-postgresql-datasource
+    access: proxy # queries are sent by the Grafana server, not by the browser
+    url: postgres:5432 # service name inside the compose network
+    user: grafana_reader # read-only role, see postgres/init/02_grafana_reader.sql
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ${POSTGRES_DB} # ${...} is replaced with the container's environment variable
+      sslmode: disable # traffic stays inside the Docker network
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}

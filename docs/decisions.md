@@ -138,3 +138,28 @@ Short log of design decisions and why they were made.
 - **Limitations:** a new connection per batch (fine at one batch per 20 s); late rows beyond the watermark are
   dropped, so a finished window in PostgreSQL can differ slightly from a batch recount over Parquet;
   `route_type` NULL is stored as -1 because a primary key column cannot be NULL (none seen so far).
+
+## 2026-11-10 — Grafana: everything provisioned from files, read-only database role
+
+- **Decision:** `grafana/grafana:13.2.5` on `localhost:3001`; the data source and the dashboard are files in
+  `grafana/` that Grafana loads at startup (provisioning), not objects clicked together in the UI.
+- **Why provisioning:** `docker compose up -d` on a clean machine gives a working dashboard, and dashboard changes
+  are visible in git diffs. Price: a provisioned dashboard cannot be saved from the UI, it has to be exported to
+  JSON and written back to the file.
+- **Read-only role `grafana_reader`:** a dashboard query is arbitrary SQL sent to the database, and anyone who can
+  open a dashboard can send their own query through Grafana. So Grafana gets a role that can only `SELECT`.
+  The role is created by `postgres/init/02_grafana_reader.sql`; its password comes from the environment via psql
+  `\getenv`, so no password is stored in git.
+- **Anonymous Viewer:** dashboards open without a login because the port is published on 127.0.0.1 only.
+  Would be turned off on any shared or public host.
+- **Dashboard reads only `line_delays_15m`:** Grafana does no heavy work, all aggregation was done by Spark.
+  The queries only re-aggregate small data (e.g. average by vehicle type weighted by `positions`).
+- **Weighted averages:** an average of per-line averages would give a line with 3 positions the same weight as a
+  line with 300, so the dashboard uses `sum(avg_delay_s * positions) / sum(positions)`.
+- **Minimum sample:** rankings ("most delayed lines", "worst line") require `trips >= 3` in a window, otherwise a
+  single late bus on a rare line tops the list.
+- **Gaps:** lines on charts break when there is no data for more than 20 minutes (collection was off) instead of
+  drawing a straight line across the gap.
+- **Limitations:** vehicle type names are a `CASE` in the queries (GTFS has names of lines and stops, not of
+  vehicle types). The map came later, see the next entry.
+

@@ -1,0 +1,14 @@
+# Load every *.json from grafana/dashboards as a dashboard and re-read the folder when files change.
+apiVersion: 1
+
+providers:
+  - name: pid
+    folder: PID
+    type: file
+    disableDeletion: true
+    # A dashboard can be edited in the UI to experiment, but the file stays the source of truth:
+    # to keep a change, export the JSON (Share -> Export) and save it into grafana/dashboards.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

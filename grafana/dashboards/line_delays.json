@@ -1,0 +1,703 @@
+{
+  "uid": "pid-line-delays",
+  "title": "PID delays by line",
+  "description": "Average delay of Prague public transport per line in 15-minute windows (table line_delays_15m, written by Spark).",
+  "tags": [
+    "pid"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "timezone": "Europe/Prague",
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "line",
+        "label": "Lines",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pid-postgres"
+        },
+        "query": "SELECT line FROM line_delays_15m GROUP BY line ORDER BY sum(positions) DESC",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": false,
+        "current": {
+          "selected": true,
+          "text": [
+            "22",
+            "17",
+            "9"
+          ],
+          "value": [
+            "22",
+            "17",
+            "9"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Average delay",
+      "description": "Weighted by the number of positions, over the selected time range.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(sum(avg_delay_s::numeric * positions) / nullif(sum(positions), 0)) AS avg_delay\nFROM line_delays_15m\nWHERE $__timeFilter(window_start)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Worst line average in a window",
+      "description": "Highest 15-minute average among lines with at least 3 trips in the window.",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT max(avg_delay_s) AS worst_avg\nFROM line_delays_15m\nWHERE $__timeFilter(window_start) AND trips >= 3"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Lines observed",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(DISTINCT line) AS lines\nFROM line_delays_15m\nWHERE $__timeFilter(window_start)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Vehicle positions processed",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT coalesce(sum(positions), 0) AS positions\nFROM line_delays_15m\nWHERE $__timeFilter(window_start)"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Average delay by vehicle type",
+      "description": "One point per 15-minute window, weighted by the number of positions.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "displayName": "${__field.labels.vehicle_type}",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 6,
+            "spanNulls": false,
+            "insertNulls": 1200000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT window_start AS \"time\",\n       CASE route_type WHEN 0 THEN 'tram' WHEN 1 THEN 'metro' WHEN 2 THEN 'train' WHEN 3 THEN 'bus'\n                       WHEN 4 THEN 'ferry' WHEN 7 THEN 'funicular' WHEN 11 THEN 'trolleybus' ELSE 'other' END AS vehicle_type,\n       round(sum(avg_delay_s::numeric * positions) / sum(positions)) AS avg_delay\nFROM line_delays_15m\nWHERE $__timeFilter(window_start)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Average delay of selected lines",
+      "description": "Choose lines in the \"Lines\" drop-down at the top. Red marks: alerts of these lines, orange: incidents reported by PID for them.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 11,
+        "h": 11
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "displayName": "${__field.labels.line}",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 6,
+            "spanNulls": false,
+            "insertNulls": 1200000
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT window_start AS \"time\",\n       line,\n       round(sum(avg_delay_s::numeric * positions) / sum(positions)) AS avg_delay\nFROM line_delays_15m\nWHERE $__timeFilter(window_start) AND line IN ($line)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Most delayed lines",
+      "description": "Over the selected time range; only lines with at least 3 trips in some window, to skip noise from single vehicles. Route names come from the GTFS reference data (scripts/load_gtfs.py).",
+      "gridPos": {
+        "x": 11,
+        "y": 12,
+        "w": 13,
+        "h": 11
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg delay"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max delay"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT d.line AS \"Line\",\n       CASE d.route_type WHEN 0 THEN 'tram' WHEN 1 THEN 'metro' WHEN 2 THEN 'train' WHEN 3 THEN 'bus'\n            WHEN 4 THEN 'ferry' WHEN 7 THEN 'funicular' WHEN 11 THEN 'trolleybus' ELSE 'other' END AS \"Type\",\n       (SELECT r.route_long_name FROM gtfs_routes r\n        WHERE r.line = d.line AND r.route_type = d.route_type LIMIT 1) AS \"Route\",\n       max(d.trips) AS \"Trips\",\n       round(sum(d.avg_delay_s::numeric * d.positions) / sum(d.positions))::int AS \"Avg delay\",\n       max(d.max_delay_s) AS \"Max delay\"\nFROM line_delays_15m d\nWHERE $__timeFilter(d.window_start)\nGROUP BY d.line, d.route_type\nHAVING max(d.trips) >= 3\nORDER BY 5 DESC\nLIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Alerts",
+      "description": "Lines that were much later than usual in a 10-minute window (Spark job detect_anomalies.py; the same alerts go to Kafka topic pid.alerts and to the Telegram bot). \"Usual\" is empty for lines without enough history: a fixed threshold is used.",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg delay"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 60
+                    },
+                    {
+                      "color": "orange",
+                      "value": 180
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Threshold"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usual"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worst vehicle"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT a.window_start AS \"Time\",\n       a.line AS \"Line\",\n       CASE a.route_type WHEN 0 THEN 'tram' WHEN 1 THEN 'metro' WHEN 2 THEN 'train' WHEN 3 THEN 'bus'\n            WHEN 4 THEN 'ferry' WHEN 7 THEN 'funicular' WHEN 11 THEN 'trolleybus' ELSE 'other' END AS \"Type\",\n       a.avg_delay_s AS \"Avg delay\",\n       a.threshold_s AS \"Threshold\",\n       a.baseline_avg_s AS \"Usual\",\n       a.max_delay_s AS \"Worst vehicle\",\n       a.trips AS \"Trips\"\nFROM line_alerts a\nWHERE $__timeFilter(a.window_start)\nORDER BY a.window_start DESC, a.avg_delay_s DESC\nLIMIT 200"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Disruptions reported by PID",
+      "description": "Incidents (unplanned) and closures (planned) from the PID RSS feeds that were active in the selected time range. An empty \"To\" means \"until further notice\".",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "pid-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "pid-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT kind AS \"Kind\",\n       title AS \"Disruption\",\n       array_to_string(lines, ', ') AS \"Lines\",\n       time_from AS \"From\",\n       coalesce(time_to, removed_at) AS \"To\"\nFROM disruptions\nWHERE time_from < $__timeTo() AND coalesce(time_to, removed_at, now()) > $__timeFrom()\nORDER BY kind DESC, time_from DESC\nLIMIT 200"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "pid"
+      ],
+      "asDropdown": false,
+      "title": "PID dashboards",
+      "includeVars": false,
+      "keepTime": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Alerts of selected lines",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pid-postgres"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "target": {
+          "refId": "Anno",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT window_start AS time,\n       window_end AS timeend,\n       'Alert: line ' || line || ', average delay ' || avg_delay_s || ' s (threshold ' || threshold_s || ' s)' AS text,\n       'alert' AS tags\nFROM line_alerts\nWHERE $__timeFilter(window_start) AND line IN ($line)"
+        }
+      },
+      {
+        "name": "Incidents on selected lines",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "pid-postgres"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "orange",
+        "target": {
+          "refId": "Anno",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT time_from AS time,\n       coalesce(time_to, removed_at, now()) AS timeend,\n       title || ' (lines ' || array_to_string(lines, ', ') || ')' AS text,\n       'incident' AS tags\nFROM disruptions\nWHERE kind = 'incident' AND lines && ARRAY[$line]::text[]\n  AND time_from < $__timeTo() AND coalesce(time_to, removed_at, now()) > $__timeFrom()"
+        }
+      }
+    ]
+  }
+}

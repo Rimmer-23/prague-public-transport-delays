@@ -51,6 +51,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-pid}
       POSTGRES_USER: ${POSTGRES_USER:-pid}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      # read by postgres/init/02_grafana_reader.sql to set the password of the read-only role
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env (see .env.example)}
     ports:
       - "127.0.0.1:5432:5432" # for psql / DBeaver on Windows; not reachable from other machines
     volumes:
@@ -61,6 +63,31 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    container_name: pid-grafana
+    ports:
+      - "127.0.0.1:3001:3000" # http://localhost:3001 (3000 on the host is taken by another project)
+    environment:
+      # admin is needed only to edit; the password is applied on the first start (empty grafana-data volume)
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env (see .env.example)}
+      # dashboards can be viewed without login; acceptable because the port is open on localhost only
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/line_delays.json
+      # substituted into grafana/provisioning/datasources/postgres.yml
+      POSTGRES_DB: ${POSTGRES_DB:-pid}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env (see .env.example)}
+    volumes:
+      - grafana-data:/var/lib/grafana # Grafana's own database: users, settings
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro # data source + where to load dashboards from
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro # dashboards as JSON files
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   spark:
@@ -99,3 +126,4 @@ services:
 volumes:
   kafka-data:
   postgres-data:
+  grafana-data:
