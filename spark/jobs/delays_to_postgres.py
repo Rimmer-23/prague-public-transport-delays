@@ -9,13 +9,11 @@ Run (see CLAUDE.md, "Команды"):
         /opt/spark/jobs/delays_to_postgres.py
 """
 
-import os
-
-import psycopg
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.streaming import StreamingQuery
 
-from common import CHECKPOINT_ROOT, create_spark, read_positions
+from common import CHECKPOINT_ROOT, create_spark, pg_connect, read_positions
 from delays_by_line import aggregate_delays
 
 # Upsert: insert the row, or overwrite it if this (window, line) is already in the table.
@@ -32,17 +30,6 @@ UPSERT_SQL = """
         max_delay_s = EXCLUDED.max_delay_s,
         updated_at  = now()
 """
-
-
-def connect() -> psycopg.Connection:
-    # Connection settings come from the container environment (docker-compose.yml <- .env)
-    return psycopg.connect(
-        host=os.environ["POSTGRES_HOST"],
-        port=os.environ["POSTGRES_PORT"],
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
 
 
 def upsert_batch(batch: DataFrame, batch_id: int) -> None:
@@ -68,19 +55,19 @@ def upsert_batch(batch: DataFrame, batch_id: int) -> None:
 
     # One transaction per micro-batch: the whole batch is in the table or nothing is.
     # Spark may run the same batch again after a crash (at-least-once); the upsert makes a re-run harmless.
-    with connect() as conn:
+    with pg_connect() as conn:
         with conn.cursor() as cur:
             cur.executemany(UPSERT_SQL, [tuple(row) for row in rows])
 
-    print(f"batch {batch_id}: {len(rows)} (window, line) rows upserted into line_delays_15m")
+    print(f"[delays_to_postgres] batch {batch_id}: {len(rows)} (window, line) rows upserted into line_delays_15m")
 
 
-def main() -> None:
-    spark = create_spark("delays_to_postgres")
+def start(spark: SparkSession) -> StreamingQuery:
+    """Start the streaming query and return it without waiting (run_all.py starts several of them)."""
     delays = aggregate_delays(read_positions(spark))
-
-    query = (
+    return (
         delays.writeStream
+        .queryName("delays_to_postgres")
         .outputMode("update")  # only windows whose numbers changed in this batch
         .foreachBatch(upsert_batch)
         # Own checkpoint: this job reads Kafka independently of delays_by_line and raw_to_parquet
@@ -88,7 +75,10 @@ def main() -> None:
         .trigger(processingTime="20 seconds")
         .start()
     )
-    query.awaitTermination()
+
+
+def main() -> None:
+    start(create_spark("delays_to_postgres")).awaitTermination()
 
 
 if __name__ == "__main__":

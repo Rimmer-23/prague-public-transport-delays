@@ -10,13 +10,11 @@ Run (see CLAUDE.md, "Команды"):
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from common import CHECKPOINT_ROOT, create_spark, read_positions
+from common import CHECKPOINT_ROOT, create_spark, read_positions, route_type_name
 
 WINDOW = "15 minutes"
 WATERMARK = "10 minutes"  # positions arrive up to ~5 min late (see docs/decisions.md)
 TOP_N = 15
-
-ROUTE_TYPES = {0: "tram", 1: "metro", 2: "train", 3: "bus", 4: "ferry", 7: "funicular", 11: "trolleybus"}
 
 
 def show_batch(batch: DataFrame, batch_id: int) -> None:
@@ -28,7 +26,7 @@ def show_batch(batch: DataFrame, batch_id: int) -> None:
     (
         batch.withColumn("window_start", F.date_format("window.start", "yyyy-MM-dd HH:mm"))
         .withColumn("window_end", F.date_format("window.end", "HH:mm"))
-        .withColumn("type", F.element_at(F.create_map(*[F.lit(x) for kv in ROUTE_TYPES.items() for x in kv]), F.col("route_type")))
+        .withColumn("type", route_type_name())
         .orderBy(F.desc("avg_delay_s"))
         .select("window_start", "window_end", "line", "type", "positions", "trips", "avg_delay_s", "max_delay_s")
         .show(TOP_N, truncate=False)

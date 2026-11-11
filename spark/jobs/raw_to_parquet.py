@@ -7,16 +7,17 @@ Run (see CLAUDE.md, "Команды"):
         /opt/spark/jobs/raw_to_parquet.py
 """
 
+from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.streaming import StreamingQuery
 
 from common import CHECKPOINT_ROOT, RAW_POSITIONS_PATH, create_spark, read_positions
 
 TRIGGER = "5 minutes"  # one file per date every 5 min instead of several every 20 s (see docs/decisions.md)
 
 
-def main() -> None:
-    spark = create_spark("raw_to_parquet")
-
+def start(spark: SparkSession) -> StreamingQuery:
+    """Start the streaming query and return it without waiting (run_all.py starts several of them)."""
     positions = (
         read_positions(spark)
         # Partition column: the calendar day (Prague time) when the vehicle reported the position.
@@ -24,12 +25,13 @@ def main() -> None:
         .withColumn("date", F.to_date("event_time"))
     )
 
-    query = (
+    return (
         positions
         # A micro-batch has one task per Kafka partition (3) and each task writes its own file.
         # coalesce(1) merges them into one task -> one file per date per batch.
         .coalesce(1)
         .writeStream.format("parquet")
+        .queryName("raw_to_parquet")
         # No aggregation here: every row is new, so append is the only mode that makes sense
         # (and the only one the file sink supports).
         .outputMode("append")
@@ -41,6 +43,10 @@ def main() -> None:
         .trigger(processingTime=TRIGGER)
         .start()
     )
+
+
+def main() -> None:
+    query = start(create_spark("raw_to_parquet"))
 
     # The file sink prints nothing, so report each finished micro-batch ourselves.
     print(f"Writing {RAW_POSITIONS_PATH}, a batch every {TRIGGER}. Ctrl+C to stop.")

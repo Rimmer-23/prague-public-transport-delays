@@ -163,3 +163,16 @@ Short log of design decisions and why they were made.
 - **Limitations:** vehicle type names are a `CASE` in the queries (GTFS has names of lines and stops, not of
   vehicle types). The map came later, see the next entry.
 
+## 2026-11-11 — `spark.sql.shuffle.partitions` = 8, `maxOffsetsPerTrigger` = 200 000
+
+- **Problem:** with five streaming queries in one application micro-batches took 22–38 s for a 20 s trigger
+  ("Current batch is falling behind"). Each aggregation ran 200 tasks per batch over a few hundred rows.
+- **Decision:** `spark.sql.shuffle.partitions=8` in `create_spark()`. 200 is a default for clusters; here it only
+  multiplied scheduling overhead and state store files (200 per stateful query).
+- **Catch:** a streaming query stores the number of state partitions in its checkpoint and ignores later changes,
+  so the checkpoints of the stateful queries (`delays_to_postgres`, `delays_by_line`, `detect_anomalies`) were
+  deleted and the topic replayed. Harmless thanks to the upsert.
+- **`maxOffsetsPerTrigger`:** one micro-batch takes at most 200 000 Kafka messages. Normally a batch is ~1500
+  messages; the limit matters after a checkpoint reset or a long stop, when the backlog would otherwise arrive
+  as one batch (and `collect()` in `foreachBatch` would pull a huge result to the driver).
+
