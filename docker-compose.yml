@@ -41,6 +41,34 @@ services:
       retries: 10
     restart: unless-stopped
 
+  kafka-init:
+    # One-shot helper: creates the project's topics and exits. Auto-creation is off (see above), and
+    # --if-not-exists makes the commands safe to repeat on every `docker compose up`.
+    image: apache/kafka:4.3.2
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        topics=/opt/kafka/bin/kafka-topics.sh
+        # vehicle positions: 3 partitions, key = trip_id; ordinary log, old messages are deleted after 7 days
+        $$topics --bootstrap-server kafka:19092 --create --if-not-exists --topic pid.vehicle_positions \
+          --partitions 3 --replication-factor 1
+        # disruptions: compacted = Kafka keeps the newest message of every key (disruption id) forever.
+        # One partition: all updates in one ordered log. segment.ms / dirty.ratio make the cleaner run on
+        # small data too (it never touches the active segment, which by default is rolled once a week).
+        $$topics --bootstrap-server kafka:19092 --create --if-not-exists --topic pid.disruptions \
+          --partitions 1 --replication-factor 1 \
+          --config cleanup.policy=compact --config segment.ms=3600000 --config min.cleanable.dirty.ratio=0.1
+        # alerts: few messages, order matters, one partition
+        $$topics --bootstrap-server kafka:19092 --create --if-not-exists --topic pid.alerts \
+          --partitions 1 --replication-factor 1
+        $$topics --bootstrap-server kafka:19092 --list
+    restart: "no"
+
   postgres:
     image: postgres:18.6-alpine
     # not just "postgres": container names are global on the machine, service names are per compose project.

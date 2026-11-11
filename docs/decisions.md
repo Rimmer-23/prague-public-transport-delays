@@ -204,3 +204,23 @@ Short log of design decisions and why they were made.
 - **In Spark:** the reference tables are joined as broadcast joins — the small table is shipped to every task and
   the big side is not shuffled.
 
+## 2026-11-11 — Disruptions: compacted topic keyed by disruption id
+
+- **Source:** two PID RSS feeds — `rss-mimoradnosti` (incidents, unplanned) and `rss-vyluky` (planned closures).
+  Besides standard RSS they carry `<lines>`, `<dateFrom>`, `<dateTo>` (epoch seconds; empty = until further notice).
+- **Decision:** topic `pid.disruptions`, 1 partition, `cleanup.policy=compact`, key = RSS `guid`. The producer
+  sends a message only when a disruption appears, changes, or disappears from the feed (`removed_at` is set).
+- **Why compaction:** the feed shows only what is active now, and an incident may be edited several times. We need
+  the *latest version of every disruption forever*, not a 7-day log of edits. Compaction keeps at least the newest
+  message per key, so the topic behaves like a table and a new consumer can rebuild the full state from it.
+- **The topic is the producer's state store:** on start the producer reads the topic from the beginning
+  (`assign` at offset 0, no consumer group) and rebuilds `{id: last message}`. No local file, no database, and a
+  restart neither resends 190 unchanged items nor misses that something ended while it was off.
+- **1 partition:** ordering across all keys, trivial restore; the volume is a few messages per hour.
+- **`segment.ms=1h`, `min.cleanable.dirty.ratio=0.1`:** the cleaner never touches the active segment, which by
+  default rolls once a week — on this tiny topic compaction would never be observed.
+- **To PostgreSQL:** `disruptions_to_postgres` upserts the newest version per id (`max_by(..., offset)` within a
+  batch; later batches carry later offsets). Lines are a `text[]` column with a GIN index.
+- **Limitations:** the end of an open-ended incident is known only to the poll interval (2 min); if a feed cannot
+  be fetched its items are *not* marked as removed; the XML is parsed with the standard library (trusted source).
+
