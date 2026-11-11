@@ -266,3 +266,26 @@ Short log of design decisions and why they were made.
 - **Limitations:** Telegram updates are confirmed before the reply is sent (a crash in between loses one command);
   one process handles both loops, so a reply can take up to ~3 s.
 
+## 2026-11-11 — Daily batch job: idempotent, one transaction, results in PostgreSQL
+
+- **Decision:** `spark/jobs/daily_stats.py` reads the Parquet archive for the requested day(s) and writes four
+  tables (`daily_line_stats`, `hourly_delay_stats`, `daily_segment_delays`, `daily_disruption_impact`) plus the
+  baseline for the anomaly detector.
+- **Idempotent:** for every table `DELETE WHERE date = ANY(days)` + `COPY`, all tables in one transaction. The job
+  can be re-run for any day; a crash leaves the old numbers.
+- **Partition pruning:** the filter on `date` (the folder name) makes Spark read only the requested days.
+- **`cache()`:** four results are computed from the same cleaned rows; without it the Parquet files would be read
+  and deduplicated four times.
+- **Deduplication** by (`trip_id`, `event_time`): the producer resends everything once after a restart.
+- **Percentiles next to the average:** median and 90th percentile (`percentile_approx`) show whether a whole line
+  is late or a few vehicles pull the average up. "Late" = 180 s or more.
+- **Segments:** for every trip the delay at each stop (first position after reaching it), then `lag()` over a
+  window partitioned by trip and ordered by stop sequence gives the delay gained between two consecutive stops.
+  Only neighbouring stops are counted, and only segments with ≥ 5 trips a day are stored.
+- **Disruptions are read from Kafka in batch mode** (`spark.read.format("kafka")`): the compacted topic is the
+  full current state. Join: same line and overlapping time interval (non-equi join with a broadcast side).
+  "Impact" = average delay of the line during the disruption vs the same line the same day outside any disruption.
+- **Limitations:** correlation, not causation (a closure lasting all day has nothing to compare with; rush hour
+  and an incident can coincide); trips crossing midnight are split between two days; results are collected to the
+  driver (a few thousand rows per day).
+
