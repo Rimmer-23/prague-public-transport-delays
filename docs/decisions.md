@@ -191,3 +191,16 @@ Short log of design decisions and why they were made.
   messages; the limit matters after a checkpoint reset or a long stop, when the backlog would otherwise arrive
   as one batch (and `collect()` in `foreachBatch` would pull a huge result to the driver).
 
+## 2026-11-11 — GTFS reference data: only routes and stops, loaded with COPY
+
+- **Decision:** `scripts/load_gtfs.py` downloads `PID_GTFS.zip` (47 MB), extracts `routes.txt` and `stops.txt` to
+  `data/gtfs/` (for Spark) and loads them into `gtfs_routes` / `gtfs_stops` (for Grafana and the bot) with
+  `TRUNCATE` + `COPY` in one transaction.
+- **Why not the whole timetable:** delay is already computed by PID, so `trips`/`stop_times` (hundreds of MB) are
+  not needed; names and coordinates are. Checked on live data: every `route_id` and `last_stop_id` from the
+  positions has a match.
+- **Conditional download:** `If-Modified-Since` with the saved `Last-Modified`; the server answers 304 and the
+  script skips the download, so it can run daily.
+- **In Spark:** the reference tables are joined as broadcast joins — the small table is shipped to every task and
+  the big side is not shuffled.
+
