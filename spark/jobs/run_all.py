@@ -4,7 +4,7 @@ Each job in this folder can be started on its own (good for learning and debuggi
 way would mean five JVMs; here one driver runs five independent streaming queries. Every query still has
 its own checkpoint, its own Kafka offsets and its own trigger - they only share the process.
 
-Run (see CLAUDE.md, "Команды"):
+Run (see docs/commands.md):
     docker exec -it spark /opt/spark/bin/spark-submit \
         --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 \
         --conf spark.jars.ivy=/opt/spark/ivy \

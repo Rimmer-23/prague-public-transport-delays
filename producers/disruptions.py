@@ -100,7 +100,7 @@ def restore_state(bootstrap: str) -> dict[str, dict]:
         metadata = consumer.list_topics(TOPIC, timeout=10)
         partitions = metadata.topics[TOPIC].partitions
         if metadata.topics[TOPIC].error is not None or not partitions:
-            sys.exit(f"Topic {TOPIC} does not exist. Create it first (see CLAUDE.md, 'Команды').")
+            sys.exit(f"Topic {TOPIC} does not exist. Create it first (see docs/commands.md).")
         # offset 0 = read from the very beginning, regardless of any committed offsets
         consumer.assign([TopicPartition(TOPIC, p, 0) for p in partitions])
         remaining = len(partitions)

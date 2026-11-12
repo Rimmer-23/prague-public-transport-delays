@@ -5,3 +5,8 @@ __pycache__/
 data/
 checkpoints/
 .cache/
+
+# Personal Claude Code files (also in the global gitignore)
+CLAUDE.md
+CLAUDE.local.md
+.claude/

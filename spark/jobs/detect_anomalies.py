@@ -3,7 +3,7 @@
     pid.vehicle_positions -> sliding windows per line -> compare with the line's baseline
                           -> new alerts: PostgreSQL line_alerts (memory + history) and Kafka pid.alerts
 
-Run (see CLAUDE.md, "Команды"):
+Run (see docs/commands.md):
     docker exec -it spark /opt/spark/bin/spark-submit \
         --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 \
         --conf spark.jars.ivy=/opt/spark/ivy \

@@ -124,7 +124,7 @@ a few minutes; the daily analytics need at least one batch run (one happens righ
 - Spark UI of the streaming application: http://localhost:4041
 
 Every part can also be started by hand, one command each, to study it in isolation — the commands are listed
-in [CLAUDE.md](CLAUDE.md) (section "Команды", in Russian).
+in [docs/commands.md](docs/commands.md).
 
 ## Stack
 

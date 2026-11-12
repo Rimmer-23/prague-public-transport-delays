@@ -3,7 +3,7 @@
 The topic carries the newest version of every disruption (see producers/disruptions.py); the job keeps
 one row per disruption up to date, so Grafana can show disruptions next to the delays.
 
-Run (see CLAUDE.md, "Команды"):
+Run (see docs/commands.md):
     docker exec -it spark /opt/spark/bin/spark-submit \
         --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 \
         --conf spark.jars.ivy=/opt/spark/ivy \

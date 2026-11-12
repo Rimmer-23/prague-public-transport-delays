@@ -7,7 +7,7 @@ For every requested day it computes
     daily_disruption_impact  delay of a line during a disruption vs the rest of its day
 and, from the last 14 days, the "usual" delay of every line (line_delay_baseline) used by detect_anomalies.py.
 
-Run (see CLAUDE.md, "Команды"):
+Run (see docs/commands.md):
     docker exec -it spark /opt/spark/bin/spark-submit \
         --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.1 \
         --conf spark.jars.ivy=/opt/spark/ivy \
